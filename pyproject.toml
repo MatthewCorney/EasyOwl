@@ -23,14 +23,11 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent"
 ]
-dynamic = []  # Explicitly state there are no dynamic fields
+optional-dependencies = { dev = ["pytest", "pytest-runner"] }
 
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
 include-package-data = true
 
 [tool.setuptools.package-data]
-easyowl = ["*.txt", "*.md"]  # Adjust if specific non-Python files need inclusion
-
-[tool.setuptools.extras]
-dev = ["pytest", "pytest-runner"]
+easyowl = ["*.txt", "*.md"]

@@ -33,7 +33,7 @@ def download_ontology(url: str, destination_dir: str = "data", name: Optional[st
     file_path = os.path.join(destination_dir, filename)
     try:
         response = requests.get(url, stream=True)
-        response.raise_for_status()  # Raise an error for bad status codes
+        response.raise_for_status()
         with open(file_path, "wb") as file:
             for chunk in response.iter_content(chunk_size=8192):  # Write in chunks
                 file.write(chunk)

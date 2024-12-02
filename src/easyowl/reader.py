@@ -1,8 +1,12 @@
 from collections import defaultdict
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
+
+import lxml.etree
 from lxml import etree
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from easyowl.settings import logger
+from heapq import nlargest
 
 
 class OntologyParser:
@@ -11,23 +15,23 @@ class OntologyParser:
         Initialize the OntologyParser by parsing the OWL file and building the subclass map.
         # Example Usage
 
-    parser = OntologyParser(f"data/aero.owl")
+        parser = OntologyParser(f"data/aero.owl")
 
-    parents = parser.get_parents('http://www.ebi.ac.uk/efo/EFO_0005634', max_depth=-1)
-    pprint(parents)
+        parents = parser.get_parents('http://www.ebi.ac.uk/efo/EFO_0005634', max_depth=-1)
+        pprint(parents)
 
-    children = parser.get_children('http://www.ebi.ac.uk/efo/EFO_0005634', max_depth=-1)
-    pprint(children)
+        children = parser.get_children('http://www.ebi.ac.uk/efo/EFO_0005634', max_depth=-1)
+        pprint(children)
 
-    res=parser.entities['http://www.ebi.ac.uk/efo/EFO_0005634']
+        res=parser.entities['http://www.ebi.ac.uk/efo/EFO_0005634']
 
-    pprint(res)
+        pprint(res)
 
-    similar_terms = parser.get_similar_terms(res['properties']["label"], threshold=0.6)
-    pprint(similar_terms)
+        similar_terms = parser.get_similar_terms(res['properties']["label"], threshold=0.6)
+        pprint(similar_terms)
 
-    similar_terms = parser.get_similar_terms(res['properties']["label"], n=5)
-    pprint(similar_terms)
+        similar_terms = parser.get_similar_terms(res['properties']["label"], n=5)
+        pprint(similar_terms)
 
         :param file_path: Path to the OWL file.
         """
@@ -40,14 +44,14 @@ class OntologyParser:
         self.name_index: Dict = {}
         # Parse the OWL file and build the subclass map
         self.entities, self.relations, _, self.namespace_map = self.parse_owl(self.file_path)
-        self.subclass_map = self.build_subclass_map()
+        self.subclass_map = self._build_subclass_map()
 
         # Set up mapping dictionaries for name vectorisation
-        self.name_ids, self.index_name, self.name_index = self.get_name_label()
+        self.name_ids, self.index_name, self.name_index = self._get_name_label()
         self.similarity_matrix = None
 
     @staticmethod
-    def extract_synonyms(element, namespace_map: Dict[str, str]) -> Dict[str, List[str]]:
+    def _extract_synonyms(element: lxml.etree.Element, namespace_map: Dict[str, str]) -> Dict[str, List[str]]:
         """
         Extract synonyms (exact, narrow, broad) for an OWL entity.
 
@@ -64,7 +68,7 @@ class OntologyParser:
         return synonyms
 
     @staticmethod
-    def extract_matches(element, namespace_map: Dict[str, str]) -> Dict[str, List[str]]:
+    def _extract_matches(element: lxml.etree.Element, namespace_map: Dict[str, str]) -> Dict[str, List[str]]:
         """
         Extract match types (exact, close, narrow, broad) for an OWL entity.
 
@@ -89,7 +93,7 @@ class OntologyParser:
         return matches
 
     @staticmethod
-    def extract_properties(element, namespace_map: Dict[str, str]) -> Dict[str, Any]:
+    def _extract_properties(element: lxml.etree.Element, namespace_map: Dict[str, str]) -> Dict[str, Any]:
         """
         Extract all properties of an OWL entity.
 
@@ -145,7 +149,7 @@ class OntologyParser:
         for owl_class in root.findall('owl:Class', namespace_map):
             entity_id = owl_class.get(f"{{{namespace_map['rdf']}}}about")
             if entity_id:
-                properties = self.extract_properties(owl_class, namespace_map)
+                properties = self._extract_properties(owl_class, namespace_map)
 
                 # Extract subclasses
                 subclasses = []
@@ -156,7 +160,7 @@ class OntologyParser:
                         subclasses.append(subclass_ref)
                     else:
                         # Nested restriction or intersection
-                        subclasses.append(self.parse_restriction_or_intersection(subclass, namespace_map))
+                        subclasses.append(self._parse_restriction_or_intersection(subclass, namespace_map))
 
                 # Extract disjoint classes
                 disjoints.extend([
@@ -169,8 +173,8 @@ class OntologyParser:
                     'properties': properties,
                     'subclasses': subclasses,
                     'disjoints': [],
-                    'synonyms': self.extract_synonyms(owl_class, namespace_map),
-                    'matches': self.extract_matches(owl_class, namespace_map)
+                    'synonyms': self._extract_synonyms(owl_class, namespace_map),
+                    'matches': self._extract_matches(owl_class, namespace_map)
                 }
 
         # Extract relations (object properties)
@@ -197,7 +201,12 @@ class OntologyParser:
 
         return entities, relations, disjoints, namespace_map
 
-    def get_name_label(self):
+    def _get_name_label(self):
+        """
+        Build label_id dictionaries for the similarity search
+
+        :return:
+        """
         exact_name = {x['properties']['id']: x["properties"].get("label") for x in list(self.entities.values()) if
                       x['properties'].get("id") is not None}
         synonymy = {x['properties']['id']: x["properties"].get("hasExactSynonym") for x in
@@ -222,14 +231,20 @@ class OntologyParser:
         self.name_index = name_index
         return name_ids, index_name, name_index
 
-    def vectorise_labels(self):
+    def _vectorise_labels(self):
+        """
+        Vectorises labels and builds a similarity matrix if using the label matching functionality
+
+        :return:
+        """
         vectorizer = TfidfVectorizer()
         tfidf_matrix = vectorizer.fit_transform(list(self.name_ids.keys()))
         similarity_matrix = cosine_similarity(tfidf_matrix, dense_output=False)
         self.similarity_matrix = similarity_matrix
 
-    def build_subclass_map(self):
+    def _build_subclass_map(self):
         """
+        Builds a maps of subclasses for easy access of finding children
 
         :return:
         """
@@ -249,7 +264,7 @@ class OntologyParser:
 
         return subclass_map
 
-    def get_parents(self, entity_id, max_depth, cache=None, current_depth=0):
+    def get_parents(self, entity_id: str, max_depth: int, cache: Optional[Dict] = None, current_depth: int = 0):
         """
         Recursively find all subclasses of the given entity up to the specified depth.
 
@@ -281,7 +296,7 @@ class OntologyParser:
         cache[entity_id] = list(subclasses)
         return list(subclasses)
 
-    def get_children(self, entity_id, max_depth, cache=None, current_depth=0):
+    def get_children(self, entity_id: str, max_depth: int, cache: Optional[Dict] = None, current_depth=0):
         """
         Recursively find all child terms of the given entity up to the specified depth.
 
@@ -313,7 +328,8 @@ class OntologyParser:
         cache[entity_id] = list(children)
         return list(children)
 
-    def parse_restriction_or_intersection(self, element, namespace_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    def _parse_restriction_or_intersection(self, element: lxml.etree.Element, namespace_map: Dict[str, str]) -> List[
+        Dict[str, Any]]:
         """
         Parse an owl:Restriction or owl:intersectionOf structure.
 
@@ -330,7 +346,7 @@ class OntologyParser:
             if intersection.get(f"{{{namespace_map['rdf']}}}parseType") == "Collection":
                 for item in intersection:
                     if item.tag.endswith('Description') or 'Restriction' in item.tag:
-                        parsed_data.extend(self.parse_restriction_or_intersection(item, namespace_map))
+                        parsed_data.extend(self._parse_restriction_or_intersection(item, namespace_map))
             return parsed_data
 
         # Handle owl:Restriction
@@ -351,10 +367,11 @@ class OntologyParser:
 
         return parsed_data
 
-    def get_entity_relations(self, entity_id: str):
+    def get_entity_relations(self, entity_id: str) -> Dict[str, Any]:
         """
+        Gets all relations for a given entity
 
-        :param entity_id:
+        :param entity_id: Entity ID
         :return:
         """
         relationships = {"subclasses": set(), "superclasses": set(), "relationships": []}
@@ -370,32 +387,38 @@ class OntologyParser:
                 relationships["relationships"].append(relation)
         return relationships
 
-    def get_similar_terms(self, term, n=None, threshold=None):
+    def get_similar_terms(self, term: str, n: Optional[int] = None, threshold: Optional[float] = None) -> List[
+        Dict[str, Any]]:
         """
         Retrieve terms similar to a given index, either by top N most similar or by a similarity threshold.
+
+        :param term: Term in Ontology
+        :param n: If uses topn
+        :param threshold: If using a threshold
+        :return:
         """
+        if n and threshold:
+            logger.warning(f"{threshold=} and {n=} will result in thresholding followed by top n")
+        if term not in self.name_index:
+            logger.error(f"{term=} not present in ontology")
+            return []
         query_index = self.name_index[term]
         if self.similarity_matrix is None:
-            self.vectorise_labels()
+            self._vectorise_labels()
 
-        # Efficient row slicing in CSR format
         row_start = self.similarity_matrix.indptr[query_index]
         row_end = self.similarity_matrix.indptr[query_index + 1]
         similar_terms = list(zip(self.similarity_matrix.indices[row_start:row_end],
                                  self.similarity_matrix.data[row_start:row_end]))
 
-        # Apply threshold filter
         if threshold is not None:
             similar_terms = ((col, score) for col, score in similar_terms if score > threshold)
 
-        # Apply top-N selection
         if n is not None:
-            from heapq import nlargest
             similar_terms = nlargest(n, similar_terms, key=lambda x: x[1])
         else:
             similar_terms = sorted(similar_terms, key=lambda x: x[1], reverse=True)
 
-        # Prepare return object
         name_cache = self.index_name
         id_cache = self.name_ids
         return [

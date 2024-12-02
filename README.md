@@ -19,9 +19,11 @@ pip install git+https://github.com/MatthewCorney/EasyOwl.git
 ```
 #### Downloading
 ```
-from easyowl import download_ontology
+from easyowl.dowload import download_ontology
+from easyowl.reader import OntologyParser
+from pprint import pprint
 
-download_ontology(url="http://purl.obolibrary.org/obo/efo.owl", destination_dir="data")
+download_ontology(url="https://github.com/EBISPOT/efo/releases/download/current/efo.owl", destination_dir="data")
 ```
 #### Parse to Dictionary
 ```

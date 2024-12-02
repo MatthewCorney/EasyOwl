@@ -31,14 +31,3 @@ Homepage = "https://github.com/MatthewCorney/EasyOwl"
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
 zip-safe = false
-
-[tool.setuptools.dynamic]
-version = { attr = "src.easyowl.__version__" }
-
-[tool.setuptools.development]
-setup-requires = [
-    "pytest-runner"
-]
-test-requires = [
-    "pytest"
-]

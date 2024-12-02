@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "easyowl"
+version = "0.0.1"
+description = "Easy and lightweight parsing of OWL Ontology files"
+readme = "README.md"
+readme-content-type = "text/markdown"
+authors = [
+    { name = "Matthew Corney", email = "matthew_corney@yahoo.co.uk" }
+]
+license = { text = "MIT" }
+dependencies = [
+    "numpy",
+    "scipy",
+    "scikit-learn",
+    "lxml"
+]
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent"
+]
+
+[project.urls]
+Homepage = "https://github.com/MatthewCorney/EasyOwl"
+
+[tool.setuptools]
+packages = { find = { where = ["src"] } }
+zip-safe = false
+
+[tool.setuptools.dynamic]
+version = { attr = "src.easyowl.__version__" }
+
+[tool.setuptools.development]
+setup-requires = [
+    "pytest-runner"
+]
+test-requires = [
+    "pytest"
+]

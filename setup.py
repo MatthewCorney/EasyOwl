@@ -18,8 +18,6 @@ setup(
     install_requires=[
         'numpy', 'scipy', 'scikit-learn', 'lxml'
     ],
-    setup_requires=['pytest-runner'],
-    tests_require=['pytest'],
     extras_require={
         'dev': ['pytest', 'pytest-runner'],
     },

@@ -2,7 +2,7 @@ import requests
 import os
 
 from typing import Optional
-from src.easyowl.settings import logger
+from easyowl.settings import logger
 
 
 def download_ontology(url: str, destination_dir: str = "data", name: Optional[str] = None):

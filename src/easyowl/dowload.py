@@ -40,14 +40,3 @@ def download_ontology(url: str, destination_dir: str = "data", name: Optional[st
         logger.info(f"File downloaded successfully and saved to: {file_path}")
     except requests.exceptions.RequestException as e:
         logger.info(f"An error occurred: {e}")
-
-
-base_urls = [
-    "http://purl.obolibrary.org/obo/bao.owl",
-    "http://purl.obolibrary.org/obo/doid.owl",
-    "http://purl.obolibrary.org/obo/chebi.owl",
-    "http://purl.obolibrary.org/obo/hp.owl",
-
-]
-for i in base_urls:
-    download_ontology(url=i, destination_dir="data")

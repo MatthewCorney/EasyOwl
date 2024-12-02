@@ -16,7 +16,7 @@ setup(
     package_dir={'': "src"},
     packages=find_packages(where="src"),
     install_requires=[
-        'numpy', 'scipy', 'scikit-learn','lxml'
+        'numpy', 'scipy', 'scikit-learn', 'lxml'
     ],
     setup_requires=['pytest-runner'],
     tests_require=['pytest'],

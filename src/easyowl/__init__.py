@@ -1,7 +1,7 @@
 """
 EasyOwl - Lightweight parsing of OWL Ontology files.
 
-A simple, robust Library for parsing OWL and OBO ontology files into
+A simple, robust library for parsing OWL and OBO ontology files into
 Python data structures, with support for hierarchy navigation and
 similarity search.
 

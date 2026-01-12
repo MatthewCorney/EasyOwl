@@ -1,33 +1,94 @@
-[build-system]
-requires = ["setuptools>=42", "wheel", "pytest-runner"]
-build-backend = "setuptools.build_meta"
-
-[project]
+[tool.poetry]
 name = "easyowl"
-version = "0.0.1"
+version = "0.1.0"
 description = "Easy and lightweight parsing of OWL Ontology files"
 readme = "README.md"
-license = { file = "LICENSE" }
-authors = [
-    { name = "Matthew Corney", email = "matthew_corney@yahoo.co.uk" }
-]
-dependencies = [
-    "numpy",
-    "scipy",
-    "scikit-learn",
-    "lxml"
-]
-requires-python = ">=3.7"
+license = "MIT"
+authors = ["Matthew Corney <matthew_corney@yahoo.co.uk>"]
+packages = [{ include = "easyowl", from = "src" }]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent"
+    "Operating System :: OS Independent",
 ]
-optional-dependencies = { dev = ["pytest", "pytest-runner"] }
 
-[tool.setuptools]
-packages = { find = { where = ["src"] } }
-include-package-data = true
+[tool.poetry.dependencies]
+python = "^3.12"
+numpy = "^2.0"
+scipy = "^1.14"
+scikit-learn = "^1.5"
+lxml = "^5.0"
+requests = "^2.32"
 
-[tool.setuptools.package-data]
-easyowl = ["*.txt", "*.md"]
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+ruff = "^0.8"
+mypy = "^1.13"
+lxml-stubs = "^0.5"
+types-requests = "^2.32"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "SIM",    # flake8-simplify
+    "TCH",    # flake8-type-checking
+    "PTH",    # flake8-use-pathlib
+    "RUF",    # Ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["easyowl"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+follow_imports = "normal"
+ignore_missing_imports = false
+mypy_path = "src"
+packages = ["easyowl"]
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = [
+    "sklearn.*",
+    "scipy.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]

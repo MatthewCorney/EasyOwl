@@ -1,427 +1,253 @@
-from collections import defaultdict
-from typing import Dict, List, Tuple, Any, Optional
+"""Main OntologyParser class - facade for parsing and querying OWL ontologies."""
 
-import lxml.etree
-from lxml import etree
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-from easyowl.settings import logger
-from heapq import nlargest
+from pathlib import Path
+from typing import Any
+
+from easyowl.constants import UNLIMITED_DEPTH
+from easyowl.exceptions import EntityNotFoundError
+from easyowl.hierarchy import HierarchyNavigator, build_subclass_map
+from easyowl.parsing import parse_owl_file
+from easyowl.similarity import SimilaritySearch, build_term_index
 
 
 class OntologyParser:
-    def __init__(self, file_path: str):
+    """
+    Parser and query interface for OWL ontology files.
+
+    This class provides a high-level interface for loading OWL ontology files
+    and querying entity relationships, hierarchy, and similar terms.
+
+    Parameters
+    ----------
+    file_path : str | Path
+        Path to the OWL ontology file.
+
+    Attributes
+    ----------
+    entities : dict[str, dict[str, Any]]
+        Dictionary mapping entity URIs to their parsed data.
+    relations : list[dict[str, Any]]
+        List of object property definitions.
+
+    Raises
+    ------
+    OntologyParseError
+        If the file cannot be parsed.
+
+    Examples
+    --------
+    >>> parser = OntologyParser("data/ontology.owl")
+    >>> entity = parser.entities["http://example.org/MyClass"]
+    >>> ancestors = parser.get_ancestors("http://example.org/MyClass")
+    >>> similar = parser.find_similar_terms("heart disease", n=5)
+    """
+
+    def __init__(self, file_path: str | Path) -> None:
+        self.file_path = Path(file_path)
+
+        # Parse the ontology file
+        self.entities, self.relations, self.namespace_map = parse_owl_file(file_path)
+
+        # Build hierarchy navigator
+        self._subclass_map = build_subclass_map(self.entities)
+        self._hierarchy = HierarchyNavigator(self._subclass_map)
+
+        # Build similarity search index
+        term_to_ids, index_to_term, term_to_index = build_term_index(self.entities)
+        self._similarity = SimilaritySearch(term_to_ids, index_to_term, term_to_index)
+
+    def get_ancestors(
+        self,
+        entity_id: str,
+        *,
+        max_depth: int = UNLIMITED_DEPTH,
+    ) -> list[str]:
         """
-        Initialize the OntologyParser by parsing the OWL file and building the subclass map.
-        # Example Usage
+        Find all ancestor (superclass) entities of the given entity.
 
-        parser = OntologyParser(f"data/aero.owl")
+        Parameters
+        ----------
+        entity_id : str
+            The URI of the entity to start from.
+        max_depth : int, default=-1
+            Maximum depth to traverse. Use -1 for unlimited depth.
 
-        parents = parser.get_parents('http://www.ebi.ac.uk/efo/EFO_0005634', max_depth=-1)
-        pprint(parents)
+        Returns
+        -------
+        list[str]
+            URIs of all ancestor classes.
 
-        children = parser.get_children('http://www.ebi.ac.uk/efo/EFO_0005634', max_depth=-1)
-        pprint(children)
+        Raises
+        ------
+        EntityNotFoundError
+            If the entity_id is not found in the ontology.
 
-        res=parser.entities['http://www.ebi.ac.uk/efo/EFO_0005634']
-
-        pprint(res)
-
-        similar_terms = parser.get_similar_terms(res['properties']["label"], threshold=0.6)
-        pprint(similar_terms)
-
-        similar_terms = parser.get_similar_terms(res['properties']["label"], n=5)
-        pprint(similar_terms)
-
-        :param file_path: Path to the OWL file.
+        Examples
+        --------
+        >>> parser = OntologyParser("ontology.owl")
+        >>> ancestors = parser.get_ancestors("http://example.org/MyClass")
+        >>> direct_parents = parser.get_ancestors("http://example.org/MyClass", max_depth=1)
         """
-        self.file_path = file_path
-        self.entities: Dict[str, dict] = {}
-        self.relations: List[dict] = []
-        self.subclass_map: Dict = {}
-        self.name_ids: Dict = {}
-        self.index_name: Dict = {}
-        self.name_index: Dict = {}
-        # Parse the OWL file and build the subclass map
-        self.entities, self.relations, _, self.namespace_map = self.parse_owl(self.file_path)
-        self.subclass_map = self._build_subclass_map()
+        if entity_id not in self.entities:
+            raise EntityNotFoundError(entity_id)
 
-        # Set up mapping dictionaries for name vectorisation
-        self.name_ids, self.index_name, self.name_index = self._get_name_label()
-        self.similarity_matrix = None
+        return self._hierarchy.get_ancestors(entity_id, max_depth=max_depth)
 
-    @staticmethod
-    def _extract_synonyms(element: lxml.etree.Element, namespace_map: Dict[str, str]) -> Dict[str, List[str]]:
+    def get_descendants(
+        self,
+        entity_id: str,
+        *,
+        max_depth: int = UNLIMITED_DEPTH,
+    ) -> list[str]:
         """
-        Extract synonyms (exact, narrow, broad) for an OWL entity.
+        Find all descendant (subclass) entities of the given entity.
 
-        :param element: XML element to parse.
-        :param namespace_map: Namespace mapping from the OWL file.
-        :return: Dictionary of synonyms categorized by type.
+        Parameters
+        ----------
+        entity_id : str
+            The URI of the entity to start from.
+        max_depth : int, default=-1
+            Maximum depth to traverse. Use -1 for unlimited depth.
+
+        Returns
+        -------
+        list[str]
+            URIs of all descendant classes.
+
+        Raises
+        ------
+        EntityNotFoundError
+            If the entity_id is not found in the ontology.
+
+        Examples
+        --------
+        >>> parser = OntologyParser("ontology.owl")
+        >>> descendants = parser.get_descendants("http://example.org/MyClass")
+        >>> direct_children = parser.get_descendants("http://example.org/MyClass", max_depth=1)
         """
-        synonyms = {}
-        for synonym_type in ['hasExactSynonym', 'hasNarrowSynonym', 'hasBroadSynonym']:
-            synonyms[synonym_type] = [
-                synonym.text.strip() for synonym in element.findall(f'oboInOwl:{synonym_type}', namespace_map)
-                if synonym.text is not None
-            ]
-        return synonyms
+        if entity_id not in self.entities:
+            raise EntityNotFoundError(entity_id)
 
-    @staticmethod
-    def _extract_matches(element: lxml.etree.Element, namespace_map: Dict[str, str]) -> Dict[str, List[str]]:
+        return self._hierarchy.get_descendants(entity_id, max_depth=max_depth)
+
+    def get_entity_relations(self, entity_id: str) -> dict[str, Any]:
         """
-        Extract match types (exact, close, narrow, broad) for an OWL entity.
+        Get all relationships for a given entity.
 
-        :param element: XML element to parse.
-        :param namespace_map: Namespace mapping from the OWL file.
-        :return: Dictionary of matches categorized by type.
+        Parameters
+        ----------
+        entity_id : str
+            The URI of the entity.
+
+        Returns
+        -------
+        dict[str, Any]
+            Dictionary containing:
+            - 'ancestors': list of direct superclass URIs
+            - 'descendants': list of direct subclass URIs
+            - 'relations': list of object property relations involving this entity
+
+        Raises
+        ------
+        EntityNotFoundError
+            If the entity_id is not found in the ontology.
+
+        Examples
+        --------
+        >>> relations = parser.get_entity_relations("http://example.org/MyClass")
+        >>> print(relations['ancestors'])
         """
-        matches = {}
+        if entity_id not in self.entities:
+            raise EntityNotFoundError(entity_id)
 
-        # Check if 'skos' prefix exists in the namespace map
-        skos_prefix = namespace_map.get('skos')
-        if not skos_prefix:
-            # Return an empty dictionary if 'skos' is not in the namespace map
-            return matches
+        ancestors = self._hierarchy.get_ancestors(entity_id, max_depth=1)
+        descendants = self._hierarchy.get_descendants(entity_id, max_depth=1)
 
-        # Extract match types if 'skos' prefix is available
-        for match_type in ['exactMatch', 'closeMatch', 'narrowMatch', 'broadMatch']:
-            matches[match_type] = [
-                match.get(f"{{{skos_prefix}}}resource")
-                for match in element.findall(f'skos:{match_type}', namespace_map)
-            ]
-        return matches
-
-    @staticmethod
-    def _extract_properties(element: lxml.etree.Element, namespace_map: Dict[str, str]) -> Dict[str, Any]:
-        """
-        Extract all properties of an OWL entity.
-
-        :param element: XML element to parse.
-        :param namespace_map: Namespace mapping from the OWL file.
-        :return: Dictionary of extracted properties.
-        """
-        properties = {}
-        for child in element:
-            # Extract tag and namespace
-            tag = child.tag.split('}')[-1]
-            namespace = child.tag.split('}')[0][1:]
-
-            # Check if the tag belongs to the known namespaces
-            if namespace in namespace_map.values():
-                # Handle multiple values for the same property
-                if tag not in properties:
-                    properties[tag] = []
-                if child.text:
-                    properties[tag].append(child.text.strip())
-                # Capture resource attributes if present
-                resource = child.get(f"{{{namespace_map['rdf']}}}resource")
-                if resource:
-                    properties[tag].append(resource)
-
-        # Collapse single-value lists to just the value
-        for key in properties:
-            if len(properties[key]) == 1:
-                properties[key] = properties[key][0]
-
-        return properties
-
-    def parse_owl(self, file_path: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[str], Dict[str, str]]:
-        """
-        Parse the OWL file to extract entities, relations, disjoint classes, and namespaces.
-
-        :param file_path: Path to the OWL file.
-        :return: Entities, relations, disjoint classes, and namespace map.
-        """
-        # Parse the OWL file
-        tree = etree.parse(file_path)
-        root = tree.getroot()
-
-        # Extract namespaces from the root element
-        namespace_map = {key: value for key, value in root.nsmap.items() if value}
-
-        # Initialize results
-        entities = {}
-        relations = []
-        disjoints = []
-
-        # Extract entities (classes)
-        for owl_class in root.findall('owl:Class', namespace_map):
-            entity_id = owl_class.get(f"{{{namespace_map['rdf']}}}about")
-            if entity_id:
-                properties = self._extract_properties(owl_class, namespace_map)
-
-                # Extract subclasses
-                subclasses = []
-                for subclass in owl_class.findall('rdfs:subClassOf', namespace_map):
-                    # Direct reference to another class
-                    subclass_ref = subclass.get(f"{{{namespace_map['rdf']}}}resource")
-                    if subclass_ref:
-                        subclasses.append(subclass_ref)
-                    else:
-                        # Nested restriction or intersection
-                        subclasses.append(self._parse_restriction_or_intersection(subclass, namespace_map))
-
-                # Extract disjoint classes
-                disjoints.extend([
-                    disjoint.get(f"{{{namespace_map['rdf']}}}resource")
-                    for disjoint in owl_class.findall('owl:disjointWith', namespace_map)
-                ])
-
-                # Add entity to the dictionary
-                entities[entity_id] = {
-                    'properties': properties,
-                    'subclasses': subclasses,
-                    'disjoints': [],
-                    'synonyms': self._extract_synonyms(owl_class, namespace_map),
-                    'matches': self._extract_matches(owl_class, namespace_map)
-                }
-
-        # Extract relations (object properties)
-        for obj_prop in root.findall('owl:ObjectProperty', namespace_map):
-            predicate = obj_prop.get(f"{{{namespace_map['rdf']}}}about")
-            if predicate:
-                # Extract domain and range
-                domain_elem = obj_prop.find('rdfs:domain', namespace_map)
-                range_elem = obj_prop.find('rdfs:range', namespace_map)
-                domain = domain_elem.get(f"{{{namespace_map['rdf']}}}resource") if domain_elem is not None else None
-                range_ = range_elem.get(f"{{{namespace_map['rdf']}}}resource") if range_elem is not None else None
-
-                # Extract child elements as properties
-                properties = {
-                    child.tag.split('}')[-1]: child.text.strip()
-                    for child in obj_prop if child.text
-                }
-                relations.append({
-                    'predicate': predicate,
-                    'domain': domain,
-                    'range': range_,
-                    'properties': properties
-                })
-
-        return entities, relations, disjoints, namespace_map
-
-    def _get_name_label(self):
-        """
-        Build label_id dictionaries for the similarity search
-
-        :return:
-        """
-        exact_name = {x['properties']['id']: x["properties"].get("label") for x in list(self.entities.values()) if
-                      x['properties'].get("id") is not None}
-        synonymy = {x['properties']['id']: x["properties"].get("hasExactSynonym") for x in
-                    list(self.entities.values()) if
-                    x['properties'].get("id") is not None}
-        name_ids = {}
-        for id_value, name in exact_name.items():
-            if name not in name_ids:
-                name_ids[name] = set()
-            name_ids[name].add(id_value)
-        for id_value, names in synonymy.items():
-            if names is None:
-                continue
-            for name in names:
-                if name not in name_ids:
-                    name_ids[name] = set()
-                name_ids[name].add(id_value)
-        self.name_ids = name_ids
-        name_index = {v: k for k, v in enumerate(list(self.name_ids.keys()))}
-        index_name = {v: k for k, v in name_index.items()}
-        self.index_name = index_name
-        self.name_index = name_index
-        return name_ids, index_name, name_index
-
-    def _vectorise_labels(self):
-        """
-        Vectorises labels and builds a similarity matrix if using the label matching functionality
-
-        :return:
-        """
-        vectorizer = TfidfVectorizer()
-        tfidf_matrix = vectorizer.fit_transform(list(self.name_ids.keys()))
-        similarity_matrix = cosine_similarity(tfidf_matrix, dense_output=False)
-        self.similarity_matrix = similarity_matrix
-
-    def _build_subclass_map(self):
-        """
-        Builds a maps of subclasses for easy access of finding children
-
-        :return:
-        """
-        subclass_map = defaultdict(set)
-
-        # Iterate through the entities to populate the subclass map
-        for entity_id, entity_data in self.entities.items():
-            for subclass in entity_data.get('subclasses', set()):
-                if isinstance(subclass, str):
-                    subclass_map[entity_id].add(subclass)
-                elif isinstance(subclass, list):
-                    for subclass_str in [x for x in subclass if isinstance(x, str)]:
-                        subclass_map[entity_id].add(subclass_str)
-                elif isinstance(subclass, set):
-                    for subclass_str in [x for x in subclass if isinstance(x, str)]:
-                        subclass_map[entity_id].add(subclass_str)
-
-        return subclass_map
-
-    def get_parents(self, entity_id: str, max_depth: int, cache: Optional[Dict] = None, current_depth: int = 0):
-        """
-        Recursively find all subclasses of the given entity up to the specified depth.
-
-        :param entity_id: The ID of the entity to start from.
-        :param max_depth: The maximum depth to recurse.
-        :param cache: A cache dictionary to store already computed subclasses (for memoization).
-        :param current_depth: The current depth of recursion (default is 0).
-        :return: A list of subclass IDs up to the specified depth.
-        """
-        if max_depth == -1:
-            max_depth = float("inf")
-        if current_depth > max_depth:
-            return []
-        elif current_depth > 1000:
-            raise Exception
-        if cache is None:
-            cache = {}
-
-        if entity_id in cache:
-            return cache[entity_id]
-
-        subclasses = set()
-
-        if entity_id in self.subclass_map:
-            subclasses.add(entity_id)
-            for subclass in self.subclass_map[entity_id]:
-                subclasses.update(self.get_parents(subclass, max_depth, cache, current_depth + 1))
-
-        cache[entity_id] = list(subclasses)
-        return list(subclasses)
-
-    def get_children(self, entity_id: str, max_depth: int, cache: Optional[Dict] = None, current_depth=0):
-        """
-        Recursively find all child terms of the given entity up to the specified depth.
-
-        :param entity_id: The ID of the entity to start from.
-        :param max_depth: The maximum depth to recurse.
-        :param cache: A cache dictionary to store already computed children (for memoization).
-        :param current_depth: The current depth of recursion (default is 0).
-        :return: A list of child term IDs up to the specified depth.
-        """
-        if max_depth == -1:
-            max_depth = float("inf")
-        if current_depth > max_depth:
-            return []
-        elif current_depth > 1000:
-            raise Exception
-        if cache is None:
-            cache = {}
-
-        if entity_id in cache:
-            return cache[entity_id]
-
-        children = set()
-
-        for other_id, subclasses in self.subclass_map.items():
-            if entity_id in subclasses:
-                children.add(other_id)
-                children.update(self.get_children(other_id, max_depth, cache, current_depth + 1))
-
-        cache[entity_id] = list(children)
-        return list(children)
-
-    def _parse_restriction_or_intersection(self, element: lxml.etree.Element, namespace_map: Dict[str, str]) -> List[
-        Dict[str, Any]]:
-        """
-        Parse an owl:Restriction or owl:intersectionOf structure.
-
-        :param element: XML element to parse.
-        :param namespace_map: Namespace mapping.
-        :return: Parsed restriction or intersection data.
-        """
-        parsed_data = []
-
-        # Handle owl:intersectionOf
-        intersection = element.find('owl:intersectionOf', namespace_map)
-        if intersection is not None:
-            # Check if it's a collection
-            if intersection.get(f"{{{namespace_map['rdf']}}}parseType") == "Collection":
-                for item in intersection:
-                    if item.tag.endswith('Description') or 'Restriction' in item.tag:
-                        parsed_data.extend(self._parse_restriction_or_intersection(item, namespace_map))
-            return parsed_data
-
-        # Handle owl:Restriction
-        restriction = element.find('owl:Restriction', namespace_map)
-        if restriction is not None:
-            on_property = restriction.find('owl:onProperty', namespace_map)
-            some_values_from = restriction.find('owl:someValuesFrom', namespace_map)
-
-            on_property_id = on_property.get(f"{{{namespace_map['rdf']}}}resource") if on_property is not None else None
-            some_values_from_id = some_values_from.get(
-                f"{{{namespace_map['rdf']}}}resource") if some_values_from is not None else None
-
-            parsed_data.append({
-                'onProperty': on_property_id,
-                'someValuesFrom': some_values_from_id
-            })
-            return parsed_data
-
-        return parsed_data
-
-    def get_entity_relations(self, entity_id: str) -> Dict[str, Any]:
-        """
-        Gets all relations for a given entity
-
-        :param entity_id: Entity ID
-        :return:
-        """
-        relationships = {"subclasses": set(), "superclasses": set(), "relationships": []}
-        # Include all subclasses and superclasses
-        subclasses = set(self.get_children(entity_id, max_depth=1))
-        superclasses = set(self.get_parents(entity_id, max_depth=1))
-        relationships['subclasses'].update(subclasses)
-        relationships['superclasses'].update(superclasses)
-        for relation in self.relations:
-            if (relation.get('domain') == entity_id or
-                    relation.get('range') == entity_id or
-                    entity_id in relation.get('properties', {}).values()):
-                relationships["relationships"].append(relation)
-        return relationships
-
-    def get_similar_terms(self, term: str, n: Optional[int] = None, threshold: Optional[float] = None) -> List[
-        Dict[str, Any]]:
-        """
-        Retrieve terms similar to a given index, either by top N most similar or by a similarity threshold.
-
-        :param term: Term in Ontology
-        :param n: If uses topn
-        :param threshold: If using a threshold
-        :return:
-        """
-        if n and threshold:
-            logger.warning(f"{threshold=} and {n=} will result in thresholding followed by top n")
-        if term not in self.name_index:
-            logger.error(f"{term=} not present in ontology")
-            return []
-        query_index = self.name_index[term]
-        if self.similarity_matrix is None:
-            self._vectorise_labels()
-
-        row_start = self.similarity_matrix.indptr[query_index]
-        row_end = self.similarity_matrix.indptr[query_index + 1]
-        similar_terms = list(zip(self.similarity_matrix.indices[row_start:row_end],
-                                 self.similarity_matrix.data[row_start:row_end]))
-
-        if threshold is not None:
-            similar_terms = ((col, score) for col, score in similar_terms if score > threshold)
-
-        if n is not None:
-            similar_terms = nlargest(n, similar_terms, key=lambda x: x[1])
-        else:
-            similar_terms = sorted(similar_terms, key=lambda x: x[1], reverse=True)
-
-        name_cache = self.index_name
-        id_cache = self.name_ids
-        return [
-            {'name': name_cache[idx], 'ids': id_cache[name_cache[idx]], 'score': float(score)}
-            for idx, score in similar_terms
+        related_relations = [
+            relation
+            for relation in self.relations
+            if (
+                relation.get("domain") == entity_id
+                or relation.get("range") == entity_id
+                or entity_id in relation.get("properties", {}).values()
+            )
         ]
+
+        return {
+            "ancestors": ancestors,
+            "descendants": descendants,
+            "relations": related_relations,
+        }
+
+    def find_similar_terms(
+        self,
+        term: str,
+        *,
+        n: int | None = None,
+        threshold: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Find terms similar to the given term using TF-IDF similarity.
+
+        Parameters
+        ----------
+        term : str
+            The term label to search for.
+        n : int | None, default=None
+            Return at most N most similar terms.
+        threshold : float | None, default=None
+            Minimum similarity score (0.0 to 1.0).
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of result dictionaries with 'name', 'ids', and 'score' keys.
+
+        Raises
+        ------
+        TermNotFoundError
+            If the term is not found in the ontology index.
+
+        Notes
+        -----
+        When both `n` and `threshold` are provided, threshold filtering
+        is applied first, then top-N selection.
+
+        Examples
+        --------
+        >>> results = parser.find_similar_terms("heart disease", n=5)
+        >>> results = parser.find_similar_terms("heart disease", threshold=0.8)
+        """
+        return self._similarity.find_similar(term, n=n, threshold=threshold)
+
+    def has_entity(self, entity_id: str) -> bool:
+        """
+        Check if an entity exists in the ontology.
+
+        Parameters
+        ----------
+        entity_id : str
+            The URI of the entity to check.
+
+        Returns
+        -------
+        bool
+            True if the entity exists, False otherwise.
+        """
+        return entity_id in self.entities
+
+    def has_term(self, term: str) -> bool:
+        """
+        Check if a term label exists in the similarity index.
+
+        Parameters
+        ----------
+        term : str
+            The term label to check.
+
+        Returns
+        -------
+        bool
+            True if the term is indexed, False otherwise.
+        """
+        return self._similarity.has_term(term)

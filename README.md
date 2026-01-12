@@ -1,112 +1,154 @@
-# Introduction
-Simple and quick way to parse and understand XML based ontology formats, created due to problems
-that more comprehensive packages have in converting some owl and obo files into python objects due to 
-problems inherent to the file format and the lack of consistency.
+# EasyOwl
 
+[![CI](https://github.com/MatthewCorney/EasyOwl/actions/workflows/ci.yml/badge.svg)](https://github.com/MatthewCorney/EasyOwl/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-# Dependencies
-- requests
-- lxml
-- sklearn
-- scipy
-- numpy
+A lightweight Python library for parsing OWL and OBO ontology files. Created to handle inconsistencies in ontology file formats that cause issues with more comprehensive packages.
 
-# Usage
+## Installation
 
-# Example
-```
+```bash
 pip install git+https://github.com/MatthewCorney/EasyOwl.git
 ```
-#### Downloading
-```
-from easyowl.dowload import download_ontology
-from easyowl.reader import OntologyParser
-from pprint import pprint
 
-download_ontology(url="https://github.com/EBISPOT/efo/releases/download/current/efo.owl", destination_dir="data")
-```
-#### Parse to Dictionary
-```
-parser = OntologyParser(f"data/efo.owl")
-```
-#### Example Format
-```
-res=parser.entities['http://www.ebi.ac.uk/efo/EFO_0005634']
-pprint(res)
-```
-```
-{'disjoints': [],
- 'matches': {'broadMatch': [],
-             'closeMatch': [],
-             'exactMatch': [],
-             'narrowMatch': []},
- 'properties': {'IAO_0000115': 'The Anatomical Therapeutic Chemical (ATC) '
-                               'Classification System is used for the '
-                               'classification of active ingredients of drugs '
-                               'according to the organ or system on which they '
-                               'act and their therapeutic, pharmacological and '
-                               'chemical properties. It is controlled by the '
-                               'World Health Organization Collaborating Centre '
-                               'for Drug Statistics Methodology (WHOCC), and '
-                               'was first published in 1976.',
-                'IAO_0000117': 'Sirarat Sarntivijai',
-                'comment': 'In the Anatomical Therapeutic Chemical (ATC) '
-                           'classification system, the active substances are '
-                           'divided into different groups according to the '
-                           'organ or system on which they act and their '
-                           'therapeutic, pharmacological and chemical '
-                           'properties. Drugs are classified in groups at five '
-                           'different levels.  The drugs are divided into '
-                           'fourteen main groups (1st level), with '
-                           'pharmacological/therapeutic subgroups (2nd '
-                           'level).  The 3rd and 4th levels are '
-                           'chemical/pharmacological/therapeutic subgroups and '
-                           'the 5th level is the chemical substance.  The 2nd, '
-                           '3rd and 4th levels are often used to identify '
-                           'pharmacological subgroups when that is considered '
-                           'more appropriate than therapeutic or chemical '
-                           'subgroups.',
-                'hasExactSynonym': 'Anatomical Therapeutic Chemical '
-                                   'Classification System',
-                'label': 'ATC Classification System',
-                'subClassOf': 'http://purl.obolibrary.org/obo/IAO_0000030'},
- 'subclasses': ['http://purl.obolibrary.org/obo/IAO_0000030'],
- 'synonyms': {'hasBroadSynonym': [],
-              'hasExactSynonym': ['Anatomical Therapeutic Chemical '
-                                  'Classification System'],
-              'hasNarrowSynonym': []}}
-```
-#### Get Parent Terms
-```
-parents = parser.get_parents('http://www.ebi.ac.uk/efo/EFO_0005634', max_depth=-1)
-pprint(parents)
+## Quick Start
+
+```python
+from easyowl import OntologyParser, download_ontology
+
+# Download an ontology
+download_ontology(
+    url="https://github.com/EBISPOT/efo/releases/download/current/efo.owl",
+    destination_dir="data"
+)
+
+# Parse it
+parser = OntologyParser("data/efo.owl")
+
+# Access entities
+entity = parser.entities["http://www.ebi.ac.uk/efo/EFO_0005634"]
 ```
 
-```
-['http://www.ebi.ac.uk/efo/EFO_0005634',
- 'http://purl.obolibrary.org/obo/IAO_0000030',
- 'http://www.ebi.ac.uk/efo/EFO_0000001']
-```
-#### Get Child Terms
+## API
 
+### Parsing
 
+```python
+from easyowl import OntologyParser
+
+parser = OntologyParser("path/to/ontology.owl")
+
+# Access all entities
+print(len(parser.entities))
+
+# Access a specific entity
+entity = parser.entities["http://example.org/MyClass"]
+print(entity["properties"]["label"])
+print(entity["synonyms"])
+print(entity["matches"])
 ```
-children = parser.get_children('http://www.ebi.ac.uk/efo/EFO_0005634', max_depth=-1)
-pprint(children)
+
+### Hierarchy Navigation
+
+```python
+# Get all ancestors (superclasses)
+ancestors = parser.get_ancestors("http://example.org/MyClass")
+
+# Get direct parents only
+direct_parents = parser.get_ancestors("http://example.org/MyClass", max_depth=1)
+
+# Get all descendants (subclasses)
+descendants = parser.get_descendants("http://example.org/MyClass")
+
+# Get direct children only
+direct_children = parser.get_descendants("http://example.org/MyClass", max_depth=1)
 ```
+
+### Similarity Search
+
+```python
+# Find similar terms by label
+results = parser.find_similar_terms("heart disease", n=5)
+for result in results:
+    print(f"{result['name']}: {result['score']:.2f}")
+
+# With a similarity threshold
+results = parser.find_similar_terms("heart disease", threshold=0.7)
 ```
-['http://www.ebi.ac.uk/efo/EFO_0005635',
- 'http://www.ebi.ac.uk/efo/EFO_0005640',
- 'http://www.ebi.ac.uk/efo/EFO_0005637',
- 'http://www.ebi.ac.uk/efo/EFO_0005643',
- 'http://www.ebi.ac.uk/efo/EFO_0005645',
- 'http://www.ebi.ac.uk/efo/EFO_0005644',
- 'http://www.ebi.ac.uk/efo/EFO_0005633',
- 'http://www.ebi.ac.uk/efo/EFO_0005642',
- 'http://www.ebi.ac.uk/efo/EFO_0005639',
- 'http://www.ebi.ac.uk/efo/EFO_0005647',
- 'http://www.ebi.ac.uk/efo/EFO_0005636',
- 'http://www.ebi.ac.uk/efo/EFO_0005646',
- 'http://www.ebi.ac.uk/efo/EFO_0005638',
- 'http://www.ebi.ac.uk/efo/EFO_0005641']
+
+### Error Handling
+
+```python
+from easyowl import OntologyParser, EntityNotFoundError, OntologyParseError
+
+try:
+    parser = OntologyParser("ontology.owl")
+    ancestors = parser.get_ancestors("http://nonexistent/entity")
+except OntologyParseError as e:
+    print(f"Failed to parse: {e}")
+except EntityNotFoundError as e:
+    print(f"Entity not found: {e.entity_id}")
 ```
+
+### Downloading Ontologies
+
+```python
+from easyowl import download_ontology, DownloadError
+
+try:
+    path = download_ontology(
+        url="http://purl.obolibrary.org/obo/hp.owl",
+        destination_dir="data",
+        filename="human_phenotype.owl"  # optional custom name
+    )
+    print(f"Downloaded to: {path}")
+except DownloadError as e:
+    print(f"Download failed: {e}")
+```
+
+## Entity Structure
+
+Each entity in `parser.entities` is a dictionary with:
+
+```python
+{
+    "properties": {
+        "label": "Entity Label",
+        "id": "ENTITY_0001",
+        # ... other annotation properties
+    },
+    "subclasses": ["http://parent/class"],
+    "disjoints": ["http://disjoint/class"],
+    "synonyms": {
+        "hasExactSynonym": ["Exact Synonym"],
+        "hasNarrowSynonym": [],
+        "hasBroadSynonym": []
+    },
+    "matches": {
+        "exactMatch": [],
+        "closeMatch": [],
+        "narrowMatch": [],
+        "broadMatch": []
+    }
+}
+```
+
+## Development
+
+```bash
+# Clone and install
+git clone https://github.com/MatthewCorney/EasyOwl.git
+cd EasyOwl
+poetry install
+
+# Run checks
+poetry run ruff check src tests
+poetry run mypy
+poetry run pytest
+```
+
+## License
+
+MIT

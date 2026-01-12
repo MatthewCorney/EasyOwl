@@ -1,15 +1,21 @@
-import numpy as np
+from pathlib import Path
+
 import pytest
+
 from easyowl.reader import OntologyParser
-import os
 
-TEST_ONTOLOGY_DIR = os.path.join(os.path.dirname(__file__), "data")
+TEST_ONTOLOGY_DIR = Path(__file__).parent / "data"
 
 
-@pytest.mark.parametrize("ontology_file", [
-    os.path.join(TEST_ONTOLOGY_DIR, file) for file in os.listdir(TEST_ONTOLOGY_DIR) if file.endswith(".owl")
-])
-def test_ontology_parsing(ontology_file: str):
+@pytest.mark.parametrize(
+    "ontology_file",
+    [
+        str(TEST_ONTOLOGY_DIR / file)
+        for file in TEST_ONTOLOGY_DIR.iterdir()
+        if file.suffix == ".owl"
+    ],
+)
+def test_ontology_parsing(ontology_file: str) -> None:
     """
     Test that each ontology file in the test_ontologies directory can be read
     and produces a list of entities longer than 100.
